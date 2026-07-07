@@ -24,9 +24,13 @@ def parse_amount(value):
         return None
 
     value = value.replace(",", "")
+
     match = re.search(r"\d+(?:\.\d+)?", value)
 
-    return float(match.group()) if match else None
+    if match:
+        return float(match.group())
+
+    return None
 
 
 def normalize_date(value):
@@ -55,6 +59,35 @@ def normalize_date(value):
     return None
 
 
+def extract_date(text):
+
+    patterns = [
+
+        # 2026-05-22 or 2026/05/22
+        r"\b(\d{4}[-/]\d{2}[-/]\d{2})\b",
+
+        # 22-05-2026 or 22/05/2026
+        r"\b(\d{1,2}[-/]\d{1,2}[-/]\d{4})\b",
+
+        # 22 May 2026
+        r"\b(\d{1,2}\s+[A-Za-z]+\s+\d{4})\b",
+
+        # May 22 2026
+        r"\b([A-Za-z]+\s+\d{1,2}\s+\d{4})\b"
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, text)
+
+        if match:
+            date = normalize_date(match.group(1))
+
+            if date:
+                return date
+
+    return None
+
+
 @app.post("/extract")
 def extract(req: InvoiceRequest):
 
@@ -70,91 +103,87 @@ def extract(req: InvoiceRequest):
     }
 
 
-    patterns = {
+    # Invoice number
+    invoice_patterns = [
+        r"Invoice\s*(?:No|Number)\s*[:#\-]?\s*([A-Za-z0-9\-\/]+)",
+        r"Invoice\s*#\s*([A-Za-z0-9\-\/]+)",
+        r"Ref\s*[:\-]\s*([A-Za-z0-9\-\/]+)"
+    ]
 
-        "invoice_no": [
-            r"Invoice\s*(?:No|Number)\s*[:#\-]?\s*([A-Za-z0-9\-\/]+)",
-            r"Invoice\s*#\s*([A-Za-z0-9\-\/]+)",
-            r"Ref\s*[:\-]\s*([A-Za-z0-9\-\/]+)"
-        ],
+    for pattern in invoice_patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
 
-
-        "vendor": [
-            r"Vendor\s*[:\-]\s*(.+)",
-            r"Supplier\s*[:\-]\s*(.+)",
-            r"Company\s*[:\-]\s*(.+)",
-            r"^(.+?)\s*(?:—|-)\s*Tax Invoice"
-        ],
+        if match:
+            result["invoice_no"] = match.group(1).strip()
+            break
 
 
-        "date": [
-            r"(?:date|invoice\s*date|issued|issue\s*date|invoice\s*dt|date\s*of\s*issue|generated\s*date)\s*[:\-]?\s*(\d{4}[-/]\d{2}[-/]\d{2})",
-            r"(?:date|invoice\s*date|issued|issue\s*date|invoice\s*dt|date\s*of\s*issue|generated\s*date)\s*[:\-]?\s*(\d{1,2}[-/]\d{1,2}[-/]\d{4})",
-            r"(?:date|invoice\s*date|issued|issue\s*date|invoice\s*dt|date\s*of\s*issue|generated\s*date)\s*[:\-]?\s*(\d{1,2}\s+[A-Za-z]+\s+\d{4})",
-            r"(?:date|invoice\s*date|issued|issue\s*date|invoice\s*dt|date\s*of\s*issue|generated\s*date)\s*[:\-]?\s*([A-Za-z]+\s+\d{1,2}\s+\d{4})"
-        ],
+    # Vendor
+    vendor_patterns = [
+        r"Vendor\s*[:\-]\s*(.+)",
+        r"Supplier\s*[:\-]\s*(.+)",
+        r"Company\s*[:\-]\s*(.+)"
+    ]
+
+    for pattern in vendor_patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+
+        if match:
+            result["vendor"] = match.group(1).strip()
+            break
 
 
-        "amount": [
-            r"Subtotal.*?(?:Rs\.?|INR|\$)?\s*([\d,]+\.\d{2})",
-            r"Sub\s*Total.*?(?:Rs\.?|INR|\$)?\s*([\d,]+\.\d{2})"
-        ],
+    # Date
+    result["date"] = extract_date(text)
 
 
-        "tax": [
-            r"(?:GST|IGST|CGST|SGST|VAT|Tax).*?(?:Rs\.?|INR|\$)?\s*([\d,]+\.\d{2})"
-        ],
+    # Amount (subtotal before tax)
+    amount_patterns = [
+        r"Subtotal.*?(?:Rs\.?|INR|\$)?\s*([\d,]+\.\d{2})",
+        r"Sub\s*Total.*?(?:Rs\.?|INR|\$)?\s*([\d,]+\.\d{2})"
+    ]
 
-
-        "currency": [
-            r"Currency\s*[:\-]\s*([A-Za-z]+)",
-            r"\b(INR|USD|EUR|GBP)\b"
-        ]
-    }
-
-
-    for key, regex_list in patterns.items():
-
-        for pattern in regex_list:
-
-            match = re.search(
-                pattern,
-                text,
-                re.MULTILINE | re.IGNORECASE
-            )
-
-            if match:
-
-                value = match.group(1).strip()
-
-                if key in ["amount", "tax"]:
-                    result[key] = parse_amount(value)
-
-                elif key == "date":
-                    result[key] = normalize_date(value)
-
-                else:
-                    result[key] = value
-
-                break
-
-
-    # Date fallback
-    if result["date"] is None:
+    for pattern in amount_patterns:
         match = re.search(
-            r"\b(\d{4}[-/]\d{2}[-/]\d{2})\b",
-            text
+            pattern,
+            text,
+            re.IGNORECASE | re.DOTALL
         )
 
         if match:
-            result["date"] = normalize_date(match.group(1))
+            result["amount"] = parse_amount(match.group(1))
+            break
 
 
-    # Currency fallback
-    if result["currency"] is None:
+    # Tax
+    tax_patterns = [
+        r"(?:GST|IGST|CGST|SGST|VAT|Tax).*?(?:Rs\.?|INR|\$)?\s*([\d,]+\.\d{2})"
+    ]
 
-        if re.search(r"\bRs\.?", text, re.IGNORECASE):
-            result["currency"] = "INR"
+    for pattern in tax_patterns:
+        match = re.search(
+            pattern,
+            text,
+            re.IGNORECASE | re.DOTALL
+        )
+
+        if match:
+            result["tax"] = parse_amount(match.group(1))
+            break
+
+
+    # Currency
+    currency_match = re.search(
+        r"Currency\s*[:\-]\s*([A-Za-z]+)",
+        text,
+        re.IGNORECASE
+    )
+
+    if currency_match:
+        result["currency"] = currency_match.group(1).upper()
+
+    elif re.search(r"\bRs\.?", text, re.IGNORECASE):
+        result["currency"] = "INR"
 
 
     return result
