@@ -30,17 +30,22 @@ def normalize_date(value):
     if not value:
         return None
 
+    value = value.strip().replace(",", "")
+
     formats = [
         "%d %B %Y",
         "%d %b %Y",
         "%Y-%m-%d",
+        "%Y/%m/%d",
         "%d/%m/%Y",
-        "%d-%m-%Y"
+        "%d-%m-%Y",
+        "%B %d %Y",
+        "%b %d %Y"
     ]
 
     for fmt in formats:
         try:
-            return datetime.strptime(value.strip(), fmt).strftime("%Y-%m-%d")
+            return datetime.strptime(value, fmt).strftime("%Y-%m-%d")
         except:
             pass
 
@@ -71,9 +76,11 @@ def extract(req: InvoiceRequest):
             r"^(.+?)\s*(?:—|-)\s*Tax Invoice"
         ],
         "date": [
-            r"Date\s*[:]\s*([^\n]+)",
-            r"Issued\s*[:]\s*([^\n]+)"
-        ],
+    r"(?:Date|Invoice Date|Issued|Issue Date)\s*[:\-]?\s*(\d{4}[-/]\d{2}[-/]\d{2})",
+    r"(?:Date|Invoice Date|Issued|Issue Date)\s*[:\-]?\s*(\d{1,2}[-/]\d{1,2}[-/]\d{4})",
+    r"(?:Date|Invoice Date|Issued|Issue Date)\s*[:\-]?\s*(\d{1,2}\s+[A-Za-z]+\s+\d{4})",
+    r"(?:Date|Invoice Date|Issued|Issue Date)\s*[:\-]?\s*([A-Za-z]+\s+\d{1,2},?\s+\d{4})"
+],
         "amount": [
             r"Subtotal.*?(?:Rs\.?|INR|\$)?\s*([\d,]+\.\d{2})",
         ],
