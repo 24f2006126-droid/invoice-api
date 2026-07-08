@@ -42,45 +42,62 @@ def normalize_date(value):
     formats = [
         "%Y-%m-%d",
         "%Y/%m/%d",
+        "%Y.%m.%d",
+
         "%d-%m-%Y",
         "%d/%m/%Y",
+        "%d.%m.%Y",
+
         "%d %B %Y",
         "%d %b %Y",
+
         "%B %d %Y",
-        "%b %d %Y"
+        "%b %d %Y",
+
+        "%d-%b-%Y",
+        "%d-%B-%Y",
+
+        "%b-%d-%Y",
+        "%B-%d-%Y",
     ]
 
     for fmt in formats:
         try:
-            return datetime.strptime(value, fmt).strftime("%Y-%m-%d")
+            dt = datetime.strptime(value, fmt)
+            return dt.strftime("%Y-%m-%d")   # ISO format
         except ValueError:
             continue
 
     return None
 
-
 def extract_date(text):
-
     patterns = [
 
-        # 2026-05-22 or 2026/05/22
-        r"\b(\d{4}[-/]\d{2}[-/]\d{2})\b",
+        # Date labels
+        r"(?:Date|Invoice Date|Issued|Issue Date)\s*[:\-]\s*([^\n]+)",
 
-        # 22-05-2026 or 22/05/2026
-        r"\b(\d{1,2}[-/]\d{1,2}[-/]\d{4})\b",
+        # YYYY-MM-DD, YYYY/MM/DD, YYYY.MM.DD
+        r"\b(\d{4}[-/.]\d{1,2}[-/.]\d{1,2})\b",
+
+        # DD-MM-YYYY, DD/MM/YYYY, DD.MM.YYYY
+        r"\b(\d{1,2}[-/.]\d{1,2}[-/.]\d{4})\b",
 
         # 22 May 2026
-        r"\b(\d{1,2}\s+[A-Za-z]+\s+\d{4})\b",
+        r"\b(\d{1,2}\s+[A-Za-z]{3,9}\s+\d{4})\b",
 
-        # May 22 2026
-        r"\b([A-Za-z]+\s+\d{1,2}\s+\d{4})\b"
+        # May 22 2026 or May 22, 2026
+        r"\b([A-Za-z]{3,9}\s+\d{1,2},?\s+\d{4})\b",
+
+        # 22-May-2026
+        r"\b(\d{1,2}-[A-Za-z]{3,9}-\d{4})\b",
     ]
 
     for pattern in patterns:
-        match = re.search(pattern, text)
+        match = re.search(pattern, text, re.IGNORECASE)
 
         if match:
-            date = normalize_date(match.group(1))
+            value = match.group(1).strip()
+            date = normalize_date(value)
 
             if date:
                 return date
